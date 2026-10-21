@@ -1,14 +1,15 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import App from './App'
+import { fakeDesktop } from './test/fakeDesktop'
 import { FakeNotifications } from './test/fakeNotifications'
 import { FakeSocket } from './test/fakeSocket'
 import { makeHistory, makeSnapshot, SETTINGS } from './test/fixtures'
 
 const createSocket = (url: string) => new FakeSocket(url)
 
-function connect(settings = SETTINGS, notifications = new FakeNotifications()) {
-  render(<App createSocket={createSocket} notifications={notifications} />)
+function connect(settings = SETTINGS, notifications = new FakeNotifications(), desktop: ReturnType<typeof fakeDesktop> | null = null) {
+  render(<App createSocket={createSocket} notifications={notifications} desktop={desktop} />)
   const socket = FakeSocket.latest()
   act(() => {
     socket.open()
@@ -66,6 +67,37 @@ describe('App', () => {
     const alert = { metric: 'ram', pct: 91, thresholdPct: 85, tsMs: 6000, message: 'System RAM is at 91% (alert at 85%)' }
     act(() => socket.receive({ type: 'alert', alert }))
     expect(notifications.shown).toEqual([{ title: 'Memory Monitor', body: alert.message, tag: 'memmon-ram' }])
+  })
+
+  it('resizes the desktop window to match the view mode', () => {
+    const desktop = fakeDesktop()
+    const socket = connect(SETTINGS, new FakeNotifications(), desktop)
+    expect(desktop.setViewMode).toHaveBeenLastCalledWith('full')
+    act(() => socket.receive({ type: 'settings', settings: { ...SETTINGS, viewMode: 'compact' } }))
+    expect(desktop.setViewMode).toHaveBeenLastCalledWith('compact')
+  })
+
+  it('offers keep-on-top only in the desktop app', () => {
+    connect({ ...SETTINGS, viewMode: 'compact' })
+    expect(screen.queryByRole('button', { name: 'Keep on top' })).toBeNull()
+  })
+
+  it('pins the compact window on top in the desktop app', () => {
+    const desktop = fakeDesktop()
+    connect({ ...SETTINGS, viewMode: 'compact' }, new FakeNotifications(), desktop)
+    const pin = screen.getByRole('button', { name: 'Keep on top' })
+    expect(pin).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(pin)
+    expect(desktop.setAlwaysOnTop).toHaveBeenLastCalledWith(true)
+    expect(pin).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('unpins when switching back to the full view', () => {
+    const desktop = fakeDesktop()
+    const socket = connect({ ...SETTINGS, viewMode: 'compact' }, new FakeNotifications(), desktop)
+    fireEvent.click(screen.getByRole('button', { name: 'Keep on top' }))
+    act(() => socket.receive({ type: 'settings', settings: { ...SETTINGS, viewMode: 'full' } }))
+    expect(desktop.setAlwaysOnTop).toHaveBeenLastCalledWith(false)
   })
 
   it('tells the user when the connection drops', () => {

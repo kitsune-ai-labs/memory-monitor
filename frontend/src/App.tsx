@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Alert, HistoryPoint, Snapshot } from './api/protocol'
 import { useMonitor, type SocketLike } from './api/useMonitor'
 import { CompactView } from './components/CompactView'
@@ -6,12 +6,15 @@ import { Header } from './components/Header'
 import { CriticalIcon } from './components/icons'
 import { MetricPanel } from './components/MetricPanel'
 import { usageLevel } from './lib/levels'
+import { getDesktopBridge, type DesktopBridge } from './lib/desktop'
 import { metricView } from './lib/metrics'
 import { browserNotifications, notifyAlert, type NotificationApi } from './lib/notifications'
 
 interface AppProps {
   createSocket?: (url: string) => SocketLike
   notifications?: NotificationApi
+  /** Desktop window controls; detected from the preload bridge when not given. */
+  desktop?: DesktopBridge | null
 }
 
 interface Frozen {
@@ -19,12 +22,25 @@ interface Frozen {
   history: HistoryPoint[]
 }
 
-export default function App({ createSocket, notifications: injected }: AppProps) {
+export default function App({ createSocket, notifications: injected, desktop: injectedDesktop }: AppProps) {
   const [notifications] = useState(() => injected ?? browserNotifications())
+  const [desktop] = useState(() => (injectedDesktop === undefined ? getDesktopBridge() : injectedDesktop))
+  const [pinned, setPinned] = useState(false)
   const onAlert = useCallback((alert: Alert) => notifyAlert(notifications, alert), [notifications])
   const monitor = useMonitor({ createSocket, onAlert })
   const [frozen, setFrozen] = useState<Frozen | null>(null)
   const { settings, status, updateSettings } = monitor
+  const viewMode = settings?.viewMode
+  // Keep-on-top only makes sense for the compact window.
+  const onTop = pinned && viewMode === 'compact'
+
+  useEffect(() => {
+    if (desktop && viewMode) void desktop.setViewMode(viewMode)
+  }, [desktop, viewMode])
+
+  useEffect(() => {
+    if (desktop) void desktop.setAlwaysOnTop(onTop)
+  }, [desktop, onTop])
 
   if (!settings) {
     return (
@@ -43,7 +59,13 @@ export default function App({ createSocket, notifications: injected }: AppProps)
   if (settings.viewMode === 'compact') {
     return (
       <main className="app app--compact">
-        <CompactView {...controls} snapshot={snapshot} history={history} />
+        <CompactView
+          {...controls}
+          snapshot={snapshot}
+          history={history}
+          pinned={onTop}
+          onPinToggle={desktop ? () => setPinned(!onTop) : undefined}
+        />
       </main>
     )
   }
