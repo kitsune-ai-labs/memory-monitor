@@ -217,3 +217,25 @@ class SamplerProcess:
                 except (TimeoutError, BrokenPipeError, ConnectionResetError):
                     pass
             await self._kill()
+
+
+class WindowsHostReader:
+    """Starts the sampler on first use and returns one raw sample line per call."""
+
+    def __init__(self, powershell: Path | None, *, timeout: float = 10.0) -> None:
+        self._powershell = powershell
+        self._timeout = timeout
+        self._process: SamplerProcess | None = None
+
+    async def __call__(self) -> str:
+        if self._powershell is None:
+            raise CollectorError("powershell.exe not found; is WSL Windows interop enabled?")
+        if self._process is None:
+            script = await to_windows_path(SAMPLER_SCRIPT)
+            argv = powershell_argv(self._powershell, script)
+            self._process = SamplerProcess(argv, timeout=self._timeout)
+        return await self._process.request()
+
+    async def close(self) -> None:
+        if self._process is not None:
+            await self._process.close()

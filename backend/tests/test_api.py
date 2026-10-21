@@ -1,8 +1,10 @@
+import asyncio
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.testclient import WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
 
 from memmon.alerts import AlertEngine
@@ -14,6 +16,15 @@ from tests.factories import make_snapshot
 
 PORT = 8765
 ORIGIN = f"http://127.0.0.1:{PORT}"
+HOST = f"127.0.0.1:{PORT}"
+
+
+def ws_headers(origin: str | None = ORIGIN) -> dict[str, str]:
+    """Handshake headers a browser would send. The test client otherwise sends Host: testserver."""
+    headers = {"host": HOST}
+    if origin is not None:
+        headers["origin"] = origin
+    return headers
 
 
 @pytest.fixture
@@ -81,17 +92,25 @@ def test_rejects_non_loopback_host_headers(client: TestClient, host: str) -> Non
     [None, "http://evil.example", "http://127.0.0.1:9999", "null", "https://127.0.0.1:8765"],
 )
 def test_websocket_rejects_foreign_origins(client: TestClient, origin: str | None) -> None:
-    headers = {} if origin is None else {"origin": origin}
     with (
-        pytest.raises(WebSocketDisconnect) as excinfo,
-        client.websocket_connect("/ws", headers=headers) as ws,
+        pytest.raises(WebSocketDenialResponse) as excinfo,
+        client.websocket_connect("/ws", headers=ws_headers(origin)),
     ):
-        ws.receive_json()
-    assert excinfo.value.code == 1008
+        pass
+    assert excinfo.value.status_code == 403
+
+
+def test_websocket_rejects_non_loopback_hosts(client: TestClient) -> None:
+    with (
+        pytest.raises(WebSocketDenialResponse) as excinfo,
+        client.websocket_connect("/ws", headers={"host": "evil.example", "origin": ORIGIN}),
+    ):
+        pass
+    assert excinfo.value.status_code == 400
 
 
 def test_websocket_accepts_localhost_origin(client: TestClient) -> None:
-    with client.websocket_connect("/ws", headers={"origin": f"http://localhost:{PORT}"}) as ws:
+    with client.websocket_connect("/ws", headers=ws_headers(f"http://localhost:{PORT}")) as ws:
         assert ws.receive_json()["type"] == "hello"
 
 
@@ -99,13 +118,13 @@ def test_dev_origins_are_only_allowed_when_configured(hub: Hub, static_dir: Path
     app = create_app(hub, port=PORT, static_dir=static_dir, dev_origins=("http://127.0.0.1:5173",))
     with (
         TestClient(app, base_url=ORIGIN) as dev_client,
-        dev_client.websocket_connect("/ws", headers={"origin": "http://127.0.0.1:5173"}) as ws,
+        dev_client.websocket_connect("/ws", headers=ws_headers("http://127.0.0.1:5173")) as ws,
     ):
         assert ws.receive_json()["type"] == "hello"
 
 
 def test_websocket_streams_snapshots(client: TestClient, hub: Hub) -> None:
-    with client.websocket_connect("/ws", headers={"origin": ORIGIN}) as ws:
+    with client.websocket_connect("/ws", headers=ws_headers()) as ws:
         assert ws.receive_json()["type"] == "hello"
         client.portal.call(hub.publish, make_snapshot(ts_ms=42))  # type: ignore[union-attr]
         message = ws.receive_json()
@@ -114,9 +133,11 @@ def test_websocket_streams_snapshots(client: TestClient, hub: Hub) -> None:
 
 
 def test_websocket_updates_settings(client: TestClient, hub: Hub) -> None:
-    with client.websocket_connect("/ws", headers={"origin": ORIGIN}) as ws:
+    with client.websocket_connect("/ws", headers=ws_headers()) as ws:
         ws.receive_json()
-        ws.send_json({"type": "updateSettings", "patch": {"intervalMs": 500, "viewMode": "compact"}})
+        ws.send_json(
+            {"type": "updateSettings", "patch": {"intervalMs": 500, "viewMode": "compact"}}
+        )
         message = ws.receive_json()
     assert message["type"] == "settings"
     assert message["settings"]["intervalMs"] == 500
@@ -139,7 +160,7 @@ def test_websocket_rejects_bad_messages_without_changing_settings(
     client: TestClient, hub: Hub, payload: str
 ) -> None:
     before = hub.settings
-    with client.websocket_connect("/ws", headers={"origin": ORIGIN}) as ws:
+    with client.websocket_connect("/ws", headers=ws_headers()) as ws:
         ws.receive_json()
         ws.send_text(payload)
         message = ws.receive_json()
@@ -148,9 +169,31 @@ def test_websocket_rejects_bad_messages_without_changing_settings(
 
 
 def test_websocket_closes_on_oversized_messages(client: TestClient) -> None:
-    with client.websocket_connect("/ws", headers={"origin": ORIGIN}) as ws:
+    with client.websocket_connect("/ws", headers=ws_headers()) as ws:
         ws.receive_json()
         ws.send_text("x" * (MAX_CLIENT_MESSAGE_BYTES + 1))
         with pytest.raises(WebSocketDisconnect) as excinfo:
             ws.receive_json()
     assert excinfo.value.code == 1009
+
+
+def test_websocket_rejects_binary_frames(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=ws_headers()) as ws:
+        ws.receive_json()
+        ws.send_bytes(b"\x00\x01")
+        assert ws.receive_json() == {"type": "error", "message": "only text messages are supported"}
+
+
+def test_lifespan_starts_and_stops_the_sampler(hub: Hub) -> None:
+    events: list[str] = []
+
+    async def run_sampler(stop: asyncio.Event) -> None:
+        events.append("started")
+        await stop.wait()
+        events.append("stopped")
+
+    app = create_app(hub, port=PORT, run_sampler=run_sampler)
+    with TestClient(app, base_url=ORIGIN) as test_client:
+        assert test_client.get("/api/health").status_code == 200
+        assert events == ["started"]
+    assert events == ["started", "stopped"]

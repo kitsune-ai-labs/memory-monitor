@@ -26,7 +26,7 @@ def test_main_serves_on_127_0_0_1_without_proxy_headers(
     def fake_run(app: object, **kwargs: Any) -> None:
         captured.update(kwargs, app=app)
 
-    monkeypatch.setattr(cli.uvicorn, "run", fake_run)
+    monkeypatch.setattr("memmon.__main__.uvicorn.run", fake_run)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     cli.main(["--port", "9000"])
     assert captured["host"] == "127.0.0.1"
@@ -37,7 +37,7 @@ def test_main_serves_on_127_0_0_1_without_proxy_headers(
 
 
 def test_dev_mode_allows_the_vite_origin(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **_: None)
+    monkeypatch.setattr("memmon.__main__.uvicorn.run", lambda app, **_: None)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     assert cli.dev_origins(dev=True) == ("http://127.0.0.1:5173", "http://localhost:5173")
     assert cli.dev_origins(dev=False) == ()

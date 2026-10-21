@@ -28,6 +28,15 @@ whole GPU, so VRAM needs no Windows code.
 | `frontend/` | React + TypeScript UI (Vite), tested with Vitest + Testing Library |
 | `.github/` | CI (lint, types, tests, audits, secret scan) and Dependabot |
 
+## Running
+
+```bash
+cd frontend && npm ci && npm run build && cd ..
+cd backend && uv run memmon          # http://127.0.0.1:8765
+```
+
+Settings are stored in `~/.config/memmon/settings.json` (private to your user).
+
 ## Development
 
 Requirements: [uv](https://docs.astral.sh/uv/) and Node 24 (via [fnm](https://github.com/Schniz/fnm)).
@@ -39,9 +48,12 @@ uv sync
 uv run pytest            # tests + coverage gate
 uv run ruff check . && uv run mypy
 
+uv run memmon --dev      # also accepts the Vite dev server's origin
+
 # frontend
 cd frontend
 npm ci
+npm run dev              # http://127.0.0.1:5173, proxies /ws and /api to the backend
 npm test
 npm run lint && npm run typecheck
 ```
