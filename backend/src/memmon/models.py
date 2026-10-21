@@ -47,3 +47,37 @@ class HostSample(_Frozen):
     memory: HostMemory
     top_ram: tuple[ProcessMemory, ...]
     top_vram: tuple[ProcessMemory, ...]
+
+
+class HistoryPoint(_Frozen):
+    ts_ms: int
+    ram_pct: float | None
+    vram_pct: float | None
+
+
+def _pct(used: int, total: int) -> float:
+    return used / total * 100
+
+
+class Snapshot(_Frozen):
+    """Everything collected in one sampling cycle. A source that failed is ``None``."""
+
+    ts_ms: int
+    gpu: GpuStats | None
+    host: HostSample | None
+    errors: tuple[str, ...] = ()
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def ram_pct(self) -> float | None:
+        if self.host is None:
+            return None
+        return _pct(self.host.memory.used_bytes, self.host.memory.total_bytes)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def vram_pct(self) -> float | None:
+        return None if self.gpu is None else _pct(self.gpu.used_bytes, self.gpu.total_bytes)
+
+    def to_point(self) -> HistoryPoint:
+        return HistoryPoint(ts_ms=self.ts_ms, ram_pct=self.ram_pct, vram_pct=self.vram_pct)
