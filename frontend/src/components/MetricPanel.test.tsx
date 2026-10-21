@@ -37,6 +37,15 @@ describe('MetricPanel', () => {
     expect(screen.getByRole('list', { name: 'Top processes by VRAM' })).toHaveTextContent('python')
   })
 
+  it('says when VRAM comes from Windows counters (no nvidia-smi)', () => {
+    const base = makeSnapshot()
+    const gpu = { ...base.gpu!, name: 'AMD Radeon RX 7900 XTX', source: 'windows' as const, utilPct: null, tempC: null, powerW: null }
+    renderPanel('vram', makeSnapshot({ gpu }))
+    const panel = screen.getByRole('region', { name: 'GPU VRAM' })
+    expect(panel).toHaveTextContent('AMD Radeon RX 7900 XTX · Windows counters')
+    expect(panel).toHaveTextContent('GPU util—')
+  })
+
   it('flags usage over the threshold', () => {
     renderPanel('ram', makeSnapshot({ ramPct: 90 }))
     expect(screen.getByRole('region', { name: 'System RAM' })).toHaveTextContent('Over threshold')

@@ -49,6 +49,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dev", action="store_true", help="allow the Vite dev server's origin")
     parser.add_argument("--static-dir", type=Path, default=DEFAULT_STATIC_DIR)
     parser.add_argument(
+        "--gpu-source",
+        choices=("auto", "nvidia", "windows"),
+        default="auto",
+        help="where GPU memory comes from (auto: nvidia-smi, else Windows counters)",
+    )
+    parser.add_argument(
         "--exit-on-eof",
         action="store_true",
         help="shut down when stdin closes (used by the desktop app to stop the server)",
@@ -133,7 +139,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     host_reader = WindowsHostReader(_find_powershell())
     sampler = Sampler(
-        read_gpu=functools.partial(read_nvidia_smi, _find_nvidia_smi()), read_host=host_reader
+        read_gpu=functools.partial(read_nvidia_smi, _find_nvidia_smi()),
+        read_host=host_reader,
+        gpu_source=args.gpu_source,
     )
 
     async def run_sampler(stop: asyncio.Event) -> None:

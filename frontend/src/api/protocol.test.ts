@@ -20,6 +20,15 @@ describe('parseServerMessage', () => {
     expect(parseServerMessage(json({ type: 'snapshot', snapshot }))).toEqual({ type: 'snapshot', snapshot })
   })
 
+  it('accepts a GPU reading from either source', () => {
+    for (const source of ['nvidia-smi', 'windows']) {
+      const snapshot = makeSnapshot({ gpu: { ...makeSnapshot().gpu!, source } as never })
+      expect(parseServerMessage(json({ type: 'snapshot', snapshot }))?.type).toBe('snapshot')
+    }
+    const bad = makeSnapshot({ gpu: { ...makeSnapshot().gpu!, source: 'amd' } as never })
+    expect(parseServerMessage(json({ type: 'snapshot', snapshot: bad }))).toBeNull()
+  })
+
   it('accepts settings, alert and error messages', () => {
     const alert = { metric: 'vram', pct: 95, thresholdPct: 90, tsMs: 5, message: 'GPU VRAM is at 95% (alert at 90%)' }
     expect(parseServerMessage(json({ type: 'settings', settings: SETTINGS }))?.type).toBe('settings')

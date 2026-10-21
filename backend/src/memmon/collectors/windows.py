@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.alias_generators import to_camel
 
 from memmon.errors import CollectorError
-from memmon.models import HostMemory, HostSample, ProcessMemory
+from memmon.models import GpuStats, HostMemory, HostSample, ProcessMemory
 
 SAMPLER_SCRIPT = Path(__file__).with_name("windows_sampler.ps1")
 MAX_LINE_CHARS = 1_048_576
@@ -47,11 +47,18 @@ class _WireProcess(_Wire):
     bytes: _NonNegative
 
 
+class _WireAdapter(_Wire):
+    name: Annotated[str, Field(max_length=1024)]
+    dedicated_used_bytes: _NonNegative
+    dedicated_total_bytes: _NonNegative
+
+
 class _WireSample(_Wire):
     v: Literal[1]
     mem: _WireMemory
     procs: Annotated[list[_WireProcess], Field(max_length=MAX_PROCESSES)]
     gpu_procs: Annotated[list[_WireProcess], Field(max_length=MAX_PROCESSES)]
+    gpu: _WireAdapter | None = None
 
 
 def sanitize_name(raw: str) -> str:
@@ -77,11 +84,26 @@ def _top_by_name(
     )
 
 
-def parse_windows_sample(line: str, *, vram_total_bytes: int, top_n: int = 10) -> HostSample:
+def _adapter(wire: _WireAdapter | None) -> GpuStats | None:
+    if wire is None:
+        return None
+    if wire.dedicated_used_bytes > wire.dedicated_total_bytes:
+        raise CollectorError("adapter reports more VRAM used than it has")
+    return GpuStats(
+        name=sanitize_name(wire.name),
+        used_bytes=wire.dedicated_used_bytes,
+        total_bytes=wire.dedicated_total_bytes,
+        source="windows",
+    )
+
+
+def parse_windows_sample(line: str, *, vram_total_bytes: int | None, top_n: int = 10) -> HostSample:
     """Parse and validate one line of sampler output.
 
     GPU readings larger than the card's total VRAM are dropped: the Windows
     "GPU Process Memory" counter occasionally reports nonsense values for some processes.
+    ``vram_total_bytes`` comes from nvidia-smi; when it is None, the adapter total that Windows
+    reports is used instead.
     """
     if len(line) > MAX_LINE_CHARS:
         raise CollectorError("sampler line too long")
@@ -100,12 +122,16 @@ def parse_windows_sample(line: str, *, vram_total_bytes: int, top_n: int = 10) -
             commit_limit_bytes=wire.mem.commit_limit_bytes,
             cache_bytes=wire.mem.cache_bytes,
         )
+        adapter = _adapter(wire.gpu)
     except ValidationError as exc:
         raise CollectorError(f"invalid sampler line: {exc.error_count()} errors") from exc
+    if vram_total_bytes is None:
+        vram_total_bytes = adapter.total_bytes if adapter else 0
     return HostSample(
         memory=memory,
         top_ram=_top_by_name(wire.procs, top_n=top_n),
         top_vram=_top_by_name(wire.gpu_procs, top_n=top_n, max_bytes=vram_total_bytes),
+        adapter=adapter,
     )
 
 
