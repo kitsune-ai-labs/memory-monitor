@@ -1,3 +1,5 @@
+import io
+import signal
 from pathlib import Path
 from typing import Any
 
@@ -41,3 +43,34 @@ def test_dev_mode_allows_the_vite_origin(monkeypatch: pytest.MonkeyPatch, tmp_pa
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     assert cli.dev_origins(dev=True) == ("http://127.0.0.1:5173", "http://localhost:5173")
     assert cli.dev_origins(dev=False) == ()
+
+
+def test_watch_stdin_calls_back_once_input_closes() -> None:
+    calls: list[str] = []
+    cli.watch_stdin(io.BytesIO(b"ignored\nlines\n"), lambda: calls.append("eof"))
+    assert calls == ["eof"]
+
+
+def test_exit_on_eof_starts_the_watcher(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    started: list[bool] = []
+    monkeypatch.setattr("memmon.__main__.uvicorn.run", lambda app, **_: None)
+    monkeypatch.setattr(cli, "start_eof_watch", lambda: started.append(True))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    cli.main(["--exit-on-eof"])
+    assert started == [True]
+
+
+def test_no_watcher_by_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    started: list[bool] = []
+    monkeypatch.setattr("memmon.__main__.uvicorn.run", lambda app, **_: None)
+    monkeypatch.setattr(cli, "start_eof_watch", lambda: started.append(True))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    cli.main([])
+    assert started == []
+
+
+def test_eof_requests_a_graceful_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    signals: list[int] = []
+    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: signals.append(sig))
+    cli.request_shutdown()
+    assert signals == [signal.SIGINT]
