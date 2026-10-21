@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -197,3 +198,17 @@ def test_lifespan_starts_and_stops_the_sampler(hub: Hub) -> None:
         assert test_client.get("/api/health").status_code == 200
         assert events == ["started"]
     assert events == ["started", "stopped"]
+
+
+def test_rejected_origins_are_logged_with_a_hint(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    with (
+        caplog.at_level(logging.WARNING, logger="memmon.server"),
+        pytest.raises(WebSocketDenialResponse),
+        client.websocket_connect("/ws", headers=ws_headers("http://127.0.0.1:5173\nINFO forged")),
+    ):
+        pass
+    message = caplog.records[-1].getMessage()
+    assert "rejected WebSocket from origin 'http://127.0.0.1:5173\\nINFO forged'" in message
+    assert "--dev" in message
