@@ -1,12 +1,13 @@
 import asyncio
 import json
+import time
 
 import pytest
 
 from memmon.errors import CollectorError
 from memmon.history import History
 from memmon.models import GpuStats, Snapshot
-from memmon.sampler import Sampler
+from memmon.sampler import Sampler, wall_clock_ms
 
 GIB = 1024**3
 
@@ -135,3 +136,16 @@ async def test_run_rereads_the_interval_every_cycle() -> None:
         sampler.run(History(window_ms=1000, max_points=10), ignore, interval, stop=stop), timeout=2
     )
     assert calls == 2
+
+
+def test_wall_clock_is_in_milliseconds() -> None:
+    assert abs(wall_clock_ms() - time.time() * 1000) < 1000
+
+
+async def test_timestamps_never_go_backwards() -> None:
+    times = iter([5_000, 4_000])
+    sampler = make_sampler()
+    sampler._clock_ms = lambda: next(times)
+    first = await sampler.collect()
+    second = await sampler.collect()
+    assert second.ts_ms > first.ts_ms
