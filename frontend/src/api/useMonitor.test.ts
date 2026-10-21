@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FakeSocket } from '../test/fakeSocket'
 import { makeHistory, makeSnapshot, SETTINGS } from '../test/fixtures'
@@ -8,6 +9,8 @@ const createSocket = (url: string) => new FakeSocket(url)
 
 function setup(onAlert = vi.fn()) {
   const hook = renderHook(() => useMonitor({ createSocket, onAlert }))
+  // The first connection is opened on the next tick (see the StrictMode test below).
+  act(() => vi.advanceTimersByTime(0))
   return { ...hook, onAlert, socket: () => FakeSocket.latest() }
 }
 
@@ -145,6 +148,19 @@ describe('useMonitor', () => {
       act(() => vi.advanceTimersByTime(30_000))
     }
     expect(FakeSocket.instances).toHaveLength(11)
+  })
+
+  it('opens no socket for a mount that is undone immediately (React StrictMode in dev)', () => {
+    const { unmount } = renderHook(() => useMonitor({ createSocket }))
+    unmount()
+    act(() => vi.advanceTimersByTime(1000))
+    expect(FakeSocket.instances).toHaveLength(0)
+  })
+
+  it('opens exactly one socket under StrictMode', () => {
+    renderHook(() => useMonitor({ createSocket }), { wrapper: StrictMode })
+    act(() => vi.advanceTimersByTime(0))
+    expect(FakeSocket.instances).toHaveLength(1)
   })
 
   it('closes the socket and stops reconnecting on unmount', () => {
