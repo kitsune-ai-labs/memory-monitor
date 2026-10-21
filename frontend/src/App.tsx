@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import type { HistoryPoint, Snapshot } from './api/protocol'
+import { useCallback, useState } from 'react'
+import type { Alert, HistoryPoint, Snapshot } from './api/protocol'
 import { useMonitor, type SocketLike } from './api/useMonitor'
 import { CompactView } from './components/CompactView'
 import { Header } from './components/Header'
@@ -7,9 +7,11 @@ import { CriticalIcon } from './components/icons'
 import { MetricPanel } from './components/MetricPanel'
 import { usageLevel } from './lib/levels'
 import { metricView } from './lib/metrics'
+import { browserNotifications, notifyAlert, type NotificationApi } from './lib/notifications'
 
 interface AppProps {
   createSocket?: (url: string) => SocketLike
+  notifications?: NotificationApi
 }
 
 interface Frozen {
@@ -17,8 +19,10 @@ interface Frozen {
   history: HistoryPoint[]
 }
 
-export default function App({ createSocket }: AppProps) {
-  const monitor = useMonitor({ createSocket })
+export default function App({ createSocket, notifications: injected }: AppProps) {
+  const [notifications] = useState(() => injected ?? browserNotifications())
+  const onAlert = useCallback((alert: Alert) => notifyAlert(notifications, alert), [notifications])
+  const monitor = useMonitor({ createSocket, onAlert })
   const [frozen, setFrozen] = useState<Frozen | null>(null)
   const { settings, status, updateSettings } = monitor
 
@@ -50,7 +54,7 @@ export default function App({ createSocket }: AppProps) {
 
   return (
     <main className="app">
-      <Header {...controls} />
+      <Header {...controls} notifications={notifications} />
       {critical.length > 0 && (
         <div role="status" className="banner">
           <CriticalIcon />

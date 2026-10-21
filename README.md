@@ -35,7 +35,17 @@ cd frontend && npm ci && npm run build && cd ..
 cd backend && uv run memmon          # http://127.0.0.1:8765
 ```
 
-Settings are stored in `~/.config/memmon/settings.json` (private to your user).
+Open http://127.0.0.1:8765 in Edge or Chrome on Windows (WSL forwards localhost). Settings are
+stored in `~/.config/memmon/settings.json` (private to your user).
+
+**Alerts.** When RAM or VRAM crosses its threshold, the backend sends an alert and the page shows
+it as a Windows notification. Click **Enable Windows notifications** once to grant the browser
+permission. Alerts re-arm after usage drops 5 points below the threshold, with a 60-second
+cooldown per metric. Notifications appear while the dashboard is open (a background tab is fine).
+
+**Per-process VRAM** comes from the Windows "GPU Process Memory" counter (the one Task Manager
+uses). It can include shared allocations, so a process such as `dwm` may show more than the
+card-wide total reported by `nvidia-smi`.
 
 ## Development
 

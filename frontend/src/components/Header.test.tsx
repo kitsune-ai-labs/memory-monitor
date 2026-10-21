@@ -1,10 +1,19 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { FakeNotifications } from '../test/fakeNotifications'
 import { SETTINGS } from '../test/fixtures'
 import { Header } from './Header'
 
 function renderHeader(overrides: Partial<Parameters<typeof Header>[0]> = {}) {
-  const props = { status: 'open' as const, settings: SETTINGS, paused: false, onPauseToggle: vi.fn(), onUpdate: vi.fn(), ...overrides }
+  const props = {
+    status: 'open' as const,
+    settings: SETTINGS,
+    paused: false,
+    onPauseToggle: vi.fn(),
+    onUpdate: vi.fn(),
+    notifications: new FakeNotifications(),
+    ...overrides,
+  }
   render(<Header {...props} />)
   return props
 }

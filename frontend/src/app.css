@@ -789,3 +789,23 @@ input:focus-visible {
     transition: none;
   }
 }
+
+/* Alerts control */
+
+.alerts-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.button[aria-pressed='true'] {
+  background: #3a3a37;
+}
+
+.button[aria-pressed='false'] {
+  color: var(--text-muted);
+}
+
+.button--accent {
+  border-color: var(--ram);
+}

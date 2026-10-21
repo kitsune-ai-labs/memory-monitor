@@ -1,6 +1,8 @@
 import type { Settings, SettingsPatch } from '../api/protocol'
 import type { ConnectionStatus } from '../api/useMonitor'
+import type { NotificationApi } from '../lib/notifications'
 import { statusText, statusTone } from '../lib/status'
+import { AlertsControl } from './AlertsControl'
 import { IntervalSelect } from './controls'
 import { ChipIcon, CompactIcon, FullIcon } from './icons'
 
@@ -18,7 +20,11 @@ const RANGES: { value: Settings['rangeS']; label: string }[] = [
   { value: 900, label: '15m' },
 ]
 
-export function Header({ status, settings, paused, onPauseToggle, onUpdate }: ControlsProps) {
+interface HeaderProps extends ControlsProps {
+  notifications: NotificationApi
+}
+
+export function Header({ status, settings, paused, onPauseToggle, onUpdate, notifications }: HeaderProps) {
   return (
     <header className="header">
       <div className="header__brand">
@@ -53,6 +59,7 @@ export function Header({ status, settings, paused, onPauseToggle, onUpdate }: Co
           ))}
         </div>
         <IntervalSelect label="Refresh" value={settings.intervalMs} onUpdate={onUpdate} />
+        <AlertsControl settings={settings} onUpdate={onUpdate} notifications={notifications} />
         <button type="button" className="button" onClick={onPauseToggle}>
           {paused ? 'Resume' : 'Pause'}
         </button>
