@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from memmon.collectors.nvidia import read_nvidia_smi
-from memmon.collectors.windows import SamplerProcess, powershell_argv
+from memmon.collectors.windows import (
+    SAMPLER_SCRIPT,
+    SamplerProcess,
+    powershell_argv,
+    to_windows_path,
+)
 from memmon.errors import CollectorError
 
 FAKE_SAMPLER = Path(__file__).with_name("fake_sampler.py")
@@ -143,3 +148,14 @@ async def test_close_kills_a_sampler_that_ignores_quit() -> None:
     await proc.request()
     await proc.close()
     assert proc.pid is None
+
+
+async def test_to_windows_path_reports_a_missing_wslpath(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", "")
+    with pytest.raises(CollectorError, match="wslpath"):
+        await to_windows_path(Path("/tmp/x.ps1"))
+
+
+def test_sampler_script_ships_with_the_package() -> None:
+    assert SAMPLER_SCRIPT.is_file()
+    assert SAMPLER_SCRIPT.suffix == ".ps1"
