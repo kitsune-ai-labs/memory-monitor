@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { fakeDesktop } from './test/fakeDesktop'
 import { FakeNotifications } from './test/fakeNotifications'
@@ -10,6 +10,7 @@ const createSocket = (url: string) => new FakeSocket(url)
 
 function connect(settings = SETTINGS, notifications = new FakeNotifications(), desktop: ReturnType<typeof fakeDesktop> | null = null) {
   render(<App createSocket={createSocket} notifications={notifications} desktop={desktop} />)
+  act(() => vi.advanceTimersByTime(0))
   const socket = FakeSocket.latest()
   act(() => {
     socket.open()
@@ -20,6 +21,11 @@ function connect(settings = SETTINGS, notifications = new FakeNotifications(), d
 
 beforeEach(() => {
   FakeSocket.instances = []
+  vi.useFakeTimers()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('App', () => {
