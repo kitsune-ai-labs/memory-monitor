@@ -1,6 +1,6 @@
 """Stand-in for windows_sampler.ps1 that speaks the same stdin/stdout protocol.
 
-Usage: fake_sampler.py MODE, where MODE is ok, hang, die, or slow-start.
+Usage: fake_sampler.py MODE, where MODE is ok, hang, die, huge or stubborn.
 """
 
 import json
@@ -14,7 +14,7 @@ def main() -> None:
     mode = sys.argv[1]
     for command in sys.stdin:
         command = command.strip()
-        if command == "q":
+        if command == "q" and mode != "stubborn":
             return
         if command != "s":
             continue
@@ -22,6 +22,9 @@ def main() -> None:
             time.sleep(60)
         if mode == "die":
             sys.exit(3)
+        if mode == "huge":
+            print("x" * 2_000_000, flush=True)
+            continue
         print(LINE, flush=True)
 
 

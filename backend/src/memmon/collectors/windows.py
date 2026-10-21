@@ -5,10 +5,12 @@ one JSON object per line. Everything it sends is treated as untrusted: lines are
 validated against a strict schema, and process names are sanitized before they reach the UI.
 """
 
+import asyncio
 import json
 import unicodedata
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -103,3 +105,94 @@ def parse_windows_sample(line: str, *, vram_total_bytes: int, top_n: int = 10) -
         top_ram=_top_by_name(wire.procs, top_n=top_n),
         top_vram=_top_by_name(wire.gpu_procs, top_n=top_n, max_bytes=vram_total_bytes),
     )
+
+
+def powershell_argv(powershell: Path, script_windows_path: str) -> tuple[str, ...]:
+    """The fixed command line that starts the sampler.
+
+    ``-ExecutionPolicy Bypass`` applies to this one process only; it does not change the
+    machine's policy.
+    """
+    return (
+        str(powershell),
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        script_windows_path,
+    )
+
+
+class SamplerProcess:
+    """A long-lived sampler driven over stdin: send ``s`` for a sample line, ``q`` to quit.
+
+    Starting PowerShell takes about a second, so the process is kept alive between samples.
+    If it hangs or exits, it is killed and started again on the next request.
+    """
+
+    def __init__(self, argv: Sequence[str], *, timeout: float = 5.0) -> None:
+        self._argv = tuple(argv)
+        self._timeout = timeout
+        self._proc: asyncio.subprocess.Process | None = None
+        self._lock = asyncio.Lock()
+
+    @property
+    def pid(self) -> int | None:
+        return self._proc.pid if self._proc else None
+
+    async def _ensure_started(self) -> asyncio.subprocess.Process:
+        if self._proc is None or self._proc.returncode is not None:
+            try:
+                self._proc = await asyncio.create_subprocess_exec(
+                    *self._argv,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    limit=MAX_LINE_CHARS + 1,
+                )
+            except OSError as exc:
+                raise CollectorError(f"could not start sampler: {self._argv[0]}") from exc
+        return self._proc
+
+    async def _kill(self) -> None:
+        proc, self._proc = self._proc, None
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+
+    async def request(self) -> str:
+        async with self._lock:
+            proc = await self._ensure_started()
+            if proc.stdin is None or proc.stdout is None:
+                raise CollectorError("sampler pipes are not open")
+            try:
+                proc.stdin.write(b"s\n")
+                await proc.stdin.drain()
+                raw = await asyncio.wait_for(proc.stdout.readline(), self._timeout)
+            except TimeoutError as exc:
+                await self._kill()
+                raise CollectorError("sampler timed out") from exc
+            except (BrokenPipeError, ConnectionResetError) as exc:
+                await self._kill()
+                raise CollectorError("sampler exited") from exc
+            except ValueError as exc:
+                await self._kill()
+                raise CollectorError("sampler line too long") from exc
+            if not raw:
+                await self._kill()
+                raise CollectorError("sampler exited")
+            return raw.decode("utf-8", errors="replace").rstrip("\r\n")
+
+    async def close(self) -> None:
+        async with self._lock:
+            proc = self._proc
+            if proc is not None and proc.returncode is None and proc.stdin is not None:
+                try:
+                    proc.stdin.write(b"q\n")
+                    await proc.stdin.drain()
+                    await asyncio.wait_for(proc.wait(), 1.0)
+                except (TimeoutError, BrokenPipeError, ConnectionResetError):
+                    pass
+            await self._kill()

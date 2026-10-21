@@ -4,7 +4,9 @@ Under WSL, ``nvidia-smi`` reports the whole physical GPU, including memory used 
 processes, so it is the source for VRAM, utilization, temperature and power.
 """
 
+import asyncio
 import math
+from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -18,6 +20,7 @@ NVIDIA_SMI_ARGS = (
 _FIELD_COUNT = 6
 _MIB = 1024 * 1024
 _NOT_AVAILABLE = "[N/A]"
+_MAX_OUTPUT_BYTES = 64 * 1024
 
 
 def _number(raw: str) -> float:
@@ -58,3 +61,29 @@ def parse_nvidia_smi(output: str) -> GpuStats:
         )
     except ValidationError as exc:
         raise CollectorError(f"implausible GPU values: {exc.error_count()} errors") from exc
+
+
+async def read_nvidia_smi(binary: Path, *, time_limit: float = 2.0) -> GpuStats:
+    """Run ``nvidia-smi`` with a fixed argument list (no shell) and parse its output."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            str(binary),
+            *NVIDIA_SMI_ARGS,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        raise CollectorError(f"nvidia-smi not found or not executable: {binary}") from exc
+    try:
+        async with asyncio.timeout(time_limit):
+            out, _ = await proc.communicate()
+    except TimeoutError as exc:
+        proc.kill()
+        await proc.wait()
+        raise CollectorError("nvidia-smi timed out") from exc
+    if proc.returncode != 0:
+        raise CollectorError(f"nvidia-smi failed with exit code {proc.returncode}")
+    if len(out) > _MAX_OUTPUT_BYTES:
+        raise CollectorError("nvidia-smi output too large")
+    return parse_nvidia_smi(out.decode("utf-8", errors="replace"))

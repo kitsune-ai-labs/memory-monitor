@@ -26,7 +26,9 @@ async def test_read_nvidia_smi_runs_the_binary_and_parses_its_output(tmp_path: P
 
 
 async def test_read_nvidia_smi_passes_fixed_arguments(tmp_path: Path) -> None:
-    binary = fake_binary(tmp_path, 'printf "%s\\n" "$@" > "$(dirname "$0")/args"; echo "G, 1, 2, 3, 4, 5"')
+    binary = fake_binary(
+        tmp_path, 'printf "%s\\n" "$@" > "$(dirname "$0")/args"; echo "G, 1, 2, 3, 4, 5"'
+    )
     await read_nvidia_smi(binary)
     assert (tmp_path / "args").read_text().splitlines() == [
         "--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw",
@@ -43,7 +45,7 @@ async def test_read_nvidia_smi_fails_on_nonzero_exit(tmp_path: Path) -> None:
 async def test_read_nvidia_smi_times_out(tmp_path: Path) -> None:
     binary = fake_binary(tmp_path, "exec sleep 30")
     with pytest.raises(CollectorError, match="timed out"):
-        await read_nvidia_smi(binary, timeout=0.2)
+        await read_nvidia_smi(binary, time_limit=0.2)
 
 
 async def test_read_nvidia_smi_reports_a_missing_binary(tmp_path: Path) -> None:
@@ -112,3 +114,32 @@ async def test_close_stops_the_sampler() -> None:
 
 async def test_close_without_start_is_harmless() -> None:
     await SamplerProcess(fake_argv("ok")).close()
+
+
+async def test_read_nvidia_smi_rejects_oversized_output(tmp_path: Path) -> None:
+    binary = fake_binary(tmp_path, "head -c 100000 /dev/zero | tr '\\0' 'x'")
+    with pytest.raises(CollectorError, match="too large"):
+        await read_nvidia_smi(binary)
+
+
+async def test_sampler_process_rejects_oversized_lines() -> None:
+    proc = SamplerProcess(fake_argv("huge"))
+    try:
+        with pytest.raises(CollectorError, match="too long"):
+            await proc.request()
+        assert proc.pid is None
+    finally:
+        await proc.close()
+
+
+async def test_sampler_process_reports_a_missing_executable(tmp_path: Path) -> None:
+    proc = SamplerProcess((str(tmp_path / "missing.exe"),))
+    with pytest.raises(CollectorError, match="could not start"):
+        await proc.request()
+
+
+async def test_close_kills_a_sampler_that_ignores_quit() -> None:
+    proc = SamplerProcess(fake_argv("stubborn"))
+    await proc.request()
+    await proc.close()
+    assert proc.pid is None
