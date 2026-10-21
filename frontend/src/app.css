@@ -814,3 +814,35 @@ input:focus-visible {
 .button--accent {
   border-color: var(--ram);
 }
+
+/* Connection help */
+
+.help {
+  max-width: 640px;
+  background: var(--surface);
+  border: 1px solid var(--status-warning);
+  border-radius: 12px;
+  padding: 16px 20px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.help h2 {
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+.help ul {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.help code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 1px 5px;
+}

@@ -81,7 +81,9 @@ export class BackendSupervisor {
   async start(): Promise<void> {
     // Never attach to a server we did not start: it could be anything listening on the port.
     if (await this.healthy()) {
-      throw new BackendError(`port ${this.config.port} is already in use; close the other Memory Monitor first`)
+      throw new BackendError(
+        `port ${this.config.port} is already in use (another Memory Monitor, or a backend started with uv run memmon); stop it first`,
+      )
     }
     const { file, args } = backendCommand(this.config)
     const child = this.deps.spawn(file, args, { shell: false, windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] })

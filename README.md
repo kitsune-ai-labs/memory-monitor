@@ -73,15 +73,24 @@ uv sync
 uv run pytest            # tests + coverage gate
 uv run ruff check . && uv run mypy
 
-uv run memmon --dev      # also accepts the Vite dev server's origin
-
 # frontend
 cd frontend
 npm ci
-npm run dev              # http://127.0.0.1:5173, proxies /ws and /api to the backend
 npm test
 npm run lint && npm run typecheck
 ```
+
+**Live development** (two terminals):
+
+```bash
+cd backend  && uv run memmon --dev   # --dev lets the Vite page connect
+cd frontend && npm run dev           # http://localhost:5173, proxies /ws and /api
+```
+
+The desktop app runs its own backend on port 8765. To develop while it is running, give both
+commands another port: `MEMMON_PORT=8766 uv run memmon --dev` and `MEMMON_PORT=8766 npm run dev`.
+If the page says it can't reach the service, the backend log names the cause (port in use, or
+a connection refused because `--dev` is missing).
 
 Work is test-first: each change lands as a failing test, then the code that passes it. Every
 feature goes through a branch and pull request, and CI must be green before merge.

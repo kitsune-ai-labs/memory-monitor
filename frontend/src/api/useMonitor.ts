@@ -24,6 +24,8 @@ export interface MonitorState {
   snapshot: Snapshot | null
   history: HistoryPoint[]
   lastError: string | null
+  /** Consecutive connection attempts that closed without ever opening. */
+  failedAttempts: number
 }
 
 export interface UseMonitorOptions {
@@ -50,7 +52,14 @@ function appendPoint(history: HistoryPoint[], snapshot: Snapshot): HistoryPoint[
   return kept
 }
 
-const INITIAL: MonitorState = { status: 'connecting', settings: null, snapshot: null, history: [], lastError: null }
+const INITIAL: MonitorState = {
+  status: 'connecting',
+  settings: null,
+  snapshot: null,
+  history: [],
+  lastError: null,
+  failedAttempts: 0,
+}
 
 /** Live connection to the backend: state from /ws, automatic reconnects, settings updates. */
 export function useMonitor({ url, createSocket = browserSocket, onAlert }: UseMonitorOptions = {}) {
@@ -71,11 +80,13 @@ export function useMonitor({ url, createSocket = browserSocket, onAlert }: UseMo
     const connect = () => {
       const socket = createSocket(target)
       socketRef.current = socket
+      let opened = false
       setState((s) => ({ ...s, status: 'connecting' }))
 
       socket.onopen = () => {
         attempt = 0
-        setState((s) => ({ ...s, status: 'open', lastError: null }))
+        opened = true
+        setState((s) => ({ ...s, status: 'open', lastError: null, failedAttempts: 0 }))
       }
       socket.onmessage = (event: MessageEvent) => {
         const data: unknown = event.data
@@ -102,7 +113,7 @@ export function useMonitor({ url, createSocket = browserSocket, onAlert }: UseMo
       }
       socket.onclose = () => {
         if (disposed) return
-        setState((s) => ({ ...s, status: 'closed' }))
+        setState((s) => ({ ...s, status: 'closed', failedAttempts: opened ? s.failedAttempts : s.failedAttempts + 1 }))
         const delay = Math.min(MAX_RECONNECT_MS, BASE_RECONNECT_MS * 2 ** attempt)
         attempt += 1
         timer = setTimeout(connect, delay)

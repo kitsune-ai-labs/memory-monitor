@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { Alert, HistoryPoint, Snapshot } from './api/protocol'
 import { useMonitor, type SocketLike } from './api/useMonitor'
 import { CompactView } from './components/CompactView'
+import { ConnectionHelp, HELP_AFTER_ATTEMPTS } from './components/ConnectionHelp'
 import { Header } from './components/Header'
 import { CriticalIcon } from './components/icons'
 import { MetricPanel } from './components/MetricPanel'
@@ -15,6 +16,8 @@ interface AppProps {
   notifications?: NotificationApi
   /** Desktop window controls; detected from the preload bridge when not given. */
   desktop?: DesktopBridge | null
+  /** Whether the page is served by the Vite dev server (shows dev-specific help). */
+  dev?: boolean
 }
 
 interface Frozen {
@@ -22,7 +25,7 @@ interface Frozen {
   history: HistoryPoint[]
 }
 
-export default function App({ createSocket, notifications: injected, desktop: injectedDesktop }: AppProps) {
+export default function App({ createSocket, notifications: injected, desktop: injectedDesktop, dev = import.meta.env.DEV }: AppProps) {
   const [notifications] = useState(() => injected ?? browserNotifications())
   const [desktop] = useState(() => (injectedDesktop === undefined ? getDesktopBridge() : injectedDesktop))
   const [pinned, setPinned] = useState(false)
@@ -30,6 +33,7 @@ export default function App({ createSocket, notifications: injected, desktop: in
   const monitor = useMonitor({ createSocket, onAlert })
   const [frozen, setFrozen] = useState<Frozen | null>(null)
   const { settings, status, updateSettings } = monitor
+  const help = status !== 'open' && monitor.failedAttempts >= HELP_AFTER_ATTEMPTS ? <ConnectionHelp dev={dev} /> : null
   const viewMode = settings?.viewMode
   // Keep-on-top only makes sense for the compact window.
   const onTop = pinned && viewMode === 'compact'
@@ -44,9 +48,7 @@ export default function App({ createSocket, notifications: injected, desktop: in
 
   if (!settings) {
     return (
-      <main className="app app--loading">
-        <p>Connecting to the monitor service…</p>
-      </main>
+      <main className="app app--loading">{help ?? <p>Connecting to the monitor service…</p>}</main>
     )
   }
 
@@ -59,6 +61,7 @@ export default function App({ createSocket, notifications: injected, desktop: in
   if (settings.viewMode === 'compact') {
     return (
       <main className="app app--compact">
+        {help}
         <CompactView
           {...controls}
           snapshot={snapshot}
@@ -77,6 +80,7 @@ export default function App({ createSocket, notifications: injected, desktop: in
   return (
     <main className="app">
       <Header {...controls} notifications={notifications} />
+      {help}
       {critical.length > 0 && (
         <div role="status" className="banner">
           <CriticalIcon />

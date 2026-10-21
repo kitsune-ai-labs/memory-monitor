@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { backendPort } from './devProxy'
+import { backendPort } from './devProxy.ts'
 
 describe('backendPort', () => {
   it('defaults to 8765', () => {
