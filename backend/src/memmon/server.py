@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterable
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from memmon.hub import Hub, Message
 from memmon.settings import Settings, SettingsError
+
+log = logging.getLogger(__name__)
 
 MAX_CLIENT_MESSAGE_BYTES = 4096
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
@@ -118,7 +121,15 @@ def create_app(
     async def stream(ws: WebSocket) -> None:
         # Browsers always send Origin on WebSocket handshakes; refusing anything else stops other
         # websites (and DNS-rebinding pages) from reading this machine's process list.
-        if ws.headers.get("origin") not in allowed_origins:
+        origin = ws.headers.get("origin")
+        if origin not in allowed_origins:
+            # %r keeps a hostile header from forging extra log lines.
+            log.warning(
+                "rejected WebSocket from origin %r (allowed: %s). "
+                "If this is the Vite dev server, start the backend with --dev.",
+                origin,
+                ", ".join(sorted(allowed_origins)),
+            )
             await ws.send_denial_response(PlainTextResponse("Forbidden origin", status_code=403))
             return
         await ws.accept()

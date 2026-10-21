@@ -106,6 +106,26 @@ describe('App', () => {
     expect(desktop.setAlwaysOnTop).toHaveBeenLastCalledWith(false)
   })
 
+  it('explains what to check after repeated failed connections', () => {
+    render(<App createSocket={createSocket} notifications={new FakeNotifications()} desktop={null} dev />)
+    for (let i = 0; i < 3; i += 1) {
+      act(() => vi.advanceTimersByTime(30_000))
+      act(() => FakeSocket.latest().drop())
+    }
+    expect(screen.getByRole('region', { name: "Can't reach the monitor service" })).toHaveTextContent('uv run memmon --dev')
+  })
+
+  it('shows the same help when a live dashboard loses the backend', () => {
+    const socket = connect()
+    act(() => socket.drop())
+    for (let i = 0; i < 3; i += 1) {
+      act(() => vi.advanceTimersByTime(30_000))
+      act(() => FakeSocket.latest().drop())
+    }
+    expect(screen.getByRole('region', { name: "Can't reach the monitor service" })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'System RAM' })).toBeInTheDocument()
+  })
+
   it('tells the user when the connection drops', () => {
     const socket = connect()
     act(() => socket.drop())

@@ -1,5 +1,6 @@
 import io
 import signal
+import socket
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,15 @@ import pytest
 from memmon import __main__ as cli
 
 
-def test_defaults_bind_to_loopback_only() -> None:
+@pytest.fixture(autouse=True)
+def _assume_port_free(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep these tests independent of whatever is running on this machine."""
+    if "already_in_use" not in request.node.name:
+        monkeypatch.setattr("memmon.__main__.port_available", lambda port: True)
+
+
+def test_defaults_bind_to_loopback_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MEMMON_PORT", raising=False)
     args = cli.parse_args([])
     assert args.port == 8765
     assert args.dev is False
@@ -74,3 +83,35 @@ def test_eof_requests_a_graceful_shutdown(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr("memmon.__main__.os.kill", lambda pid, sig: signals.append(sig))
     cli.request_shutdown()
     assert signals == [signal.SIGINT]
+
+
+def test_port_can_come_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEMMON_PORT", "8766")
+    assert cli.parse_args([]).port == 8766
+    assert cli.parse_args(["--port", "9000"]).port == 9000
+
+
+def test_invalid_port_in_the_environment_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEMMON_PORT", "80")
+    with pytest.raises(SystemExit):
+        cli.parse_args([])
+
+
+def test_explains_a_port_that_is_already_in_use(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("memmon.__main__.uvicorn.run", lambda app, **_: None)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        port = busy.getsockname()[1]
+        if port < 1024:
+            pytest.skip("ephemeral port below 1024")
+        with pytest.raises(SystemExit) as excinfo:
+            cli.main(["--port", str(port)])
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert f"port {port} is already in use" in err
+    assert "desktop app" in err
+    assert "MEMMON_PORT" in err

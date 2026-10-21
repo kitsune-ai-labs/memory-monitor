@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import signal
+import socket
 import sys
 import threading
 from collections.abc import Callable, Sequence
@@ -44,7 +45,7 @@ def _port(value: str) -> int:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="memmon", description=__doc__)
-    parser.add_argument("--port", type=_port, default=DEFAULT_PORT)
+    parser.add_argument("--port", type=_port, help=f"default: $MEMMON_PORT, else {DEFAULT_PORT}")
     parser.add_argument("--dev", action="store_true", help="allow the Vite dev server's origin")
     parser.add_argument("--static-dir", type=Path, default=DEFAULT_STATIC_DIR)
     parser.add_argument(
@@ -52,7 +53,34 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="shut down when stdin closes (used by the desktop app to stop the server)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.port is None:
+        try:
+            args.port = _port(os.environ.get("MEMMON_PORT", str(DEFAULT_PORT)))
+        except argparse.ArgumentTypeError as exc:
+            parser.error(f"MEMMON_PORT: {exc}")
+    return args
+
+
+def port_available(port: int) -> bool:
+    """Whether 127.0.0.1:port can be bound (SO_REUSEADDR, as uvicorn uses, ignores TIME_WAIT)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def _port_in_use_message(port: int) -> str:
+    return (
+        f"memmon: port {port} is already in use.\n"
+        "  - Is the Memory Monitor desktop app running? It starts its own backend on this port;\n"
+        "    quit it from the tray icon (closing the window only hides it).\n"
+        "  - Or run this backend on another port: MEMMON_PORT=8766 uv run memmon --dev\n"
+        "    and start the dev UI with the same variable: MEMMON_PORT=8766 npm run dev"
+    )
 
 
 def dev_origins(*, dev: bool) -> tuple[str, ...]:
@@ -93,6 +121,9 @@ def _find_powershell() -> Path | None:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
+    if not port_available(args.port):
+        print(_port_in_use_message(args.port), file=sys.stderr)
+        raise SystemExit(2)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     hub = Hub(
