@@ -53,6 +53,12 @@ export const CompactIcon = () => (
   </svg>
 )
 
+export const PinIcon = () => (
+  <svg {...base}>
+    <path d="M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3z" />
+  </svg>
+)
+
 export const PauseIcon = () => (
   <svg {...base}>
     <path d="M9 5v14M15 5v14" />

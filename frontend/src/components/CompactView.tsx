@@ -7,13 +7,16 @@ import { metricView, type MetricView } from '../lib/metrics'
 import { IntervalSelect } from './controls'
 import { statusTone } from '../lib/status'
 import type { ControlsProps } from './Header'
-import { CompactIcon, CriticalIcon, FullIcon, PauseIcon, PlayIcon } from './icons'
+import { CompactIcon, CriticalIcon, FullIcon, PauseIcon, PinIcon, PlayIcon } from './icons'
 import { ProcessList } from './ProcessList'
 import { UsageChart } from './UsageChart'
 
 interface CompactViewProps extends ControlsProps {
   snapshot: Snapshot | null
   history: HistoryPoint[]
+  pinned?: boolean
+  /** Only provided in the desktop app, where the window can stay on top. */
+  onPinToggle?: () => void
 }
 
 const MAX_CHART_POINTS = 90
@@ -64,7 +67,17 @@ const rounded = (value: number | null | undefined, unit: string) =>
   value === null || value === undefined ? '—' : `${Math.round(value)}${unit}`
 
 /** The small always-on-top style view: both metrics, one chart, one process list. */
-export function CompactView({ status, settings, paused, onPauseToggle, onUpdate, snapshot, history }: CompactViewProps) {
+export function CompactView({
+  status,
+  settings,
+  paused,
+  onPauseToggle,
+  onUpdate,
+  snapshot,
+  history,
+  pinned = false,
+  onPinToggle,
+}: CompactViewProps) {
   const [tab, setTab] = useState<Metric>('ram')
   const panelId = useId()
   const ram = metricView('ram', snapshot, settings)
@@ -91,6 +104,11 @@ export function CompactView({ status, settings, paused, onPauseToggle, onUpdate,
               <CompactIcon />
             </button>
           </div>
+          {onPinToggle && (
+            <button type="button" className="icon-button" aria-label="Keep on top" aria-pressed={pinned} onClick={onPinToggle}>
+              <PinIcon />
+            </button>
+          )}
           <button type="button" className="icon-button" aria-label={paused ? 'Resume' : 'Pause'} onClick={onPauseToggle}>
             {paused ? <PlayIcon /> : <PauseIcon />}
           </button>

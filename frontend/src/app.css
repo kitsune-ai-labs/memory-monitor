@@ -194,6 +194,11 @@ h3 {
   justify-content: center;
 }
 
+.icon-button[aria-pressed='true'] {
+  background: var(--border);
+  color: var(--text);
+}
+
 button:focus-visible,
 select:focus-visible,
 input:focus-visible {
