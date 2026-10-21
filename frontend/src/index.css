@@ -1,0 +1,33 @@
+:root {
+  --bg: #0f0f0e;
+  --surface: #1a1a19;
+  --surface-sunken: #141413;
+  --border: #2c2c2a;
+  --border-subtle: #262624;
+  --text: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #9a998f;
+  --ram: #3987e5;
+  --vram: #d95926;
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+  --sans: Inter, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+
+  color-scheme: dark;
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
