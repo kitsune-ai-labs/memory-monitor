@@ -141,6 +141,27 @@ describe('useMonitor', () => {
     expect(FakeSocket.instances).toHaveLength(4)
   })
 
+  it('counts connection attempts that never opened', () => {
+    const { socket, result } = setup()
+    expect(result.current.failedAttempts).toBe(0)
+    for (let i = 0; i < 3; i += 1) {
+      act(() => socket().drop())
+      act(() => vi.advanceTimersByTime(30_000))
+    }
+    expect(result.current.failedAttempts).toBe(3)
+    act(() => socket().open())
+    expect(result.current.failedAttempts).toBe(0)
+  })
+
+  it('does not count a drop after a successful connection as a failed attempt', () => {
+    const { socket, result } = setup()
+    act(() => {
+      socket().open()
+      socket().drop()
+    })
+    expect(result.current.failedAttempts).toBe(0)
+  })
+
   it('caps the reconnect delay', () => {
     const { socket } = setup()
     for (let i = 0; i < 10; i += 1) {
