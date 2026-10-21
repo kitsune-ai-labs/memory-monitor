@@ -6,10 +6,10 @@ export class FakeSocket implements SocketLike {
   readyState = 0
   sent: string[] = []
   closed = false
-  onopen: (() => void) | null = null
-  onmessage: ((event: { data: unknown }) => void) | null = null
-  onclose: (() => void) | null = null
-  onerror: (() => void) | null = null
+  onopen: ((event: Event) => void) | null = null
+  onmessage: ((event: MessageEvent) => void) | null = null
+  onclose: ((event: CloseEvent) => void) | null = null
+  onerror: ((event: Event) => void) | null = null
   readonly url: string
 
   constructor(url: string) {
@@ -34,15 +34,19 @@ export class FakeSocket implements SocketLike {
 
   open() {
     this.readyState = 1
-    this.onopen?.()
+    this.onopen?.(new Event('open'))
+  }
+
+  receiveBinary() {
+    this.onmessage?.(new MessageEvent('message', { data: new ArrayBuffer(2) }))
   }
 
   receive(message: unknown) {
-    this.onmessage?.({ data: typeof message === 'string' ? message : JSON.stringify(message) })
+    this.onmessage?.(new MessageEvent('message', { data: typeof message === 'string' ? message : JSON.stringify(message) }))
   }
 
   drop() {
     this.readyState = 3
-    this.onclose?.()
+    this.onclose?.(new CloseEvent('close'))
   }
 }

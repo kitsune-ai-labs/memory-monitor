@@ -103,7 +103,7 @@ describe('useMonitor', () => {
       socket().open()
       socket().receive(hello())
       socket().receive('{"type":"snapshot","snapshot":{"tsMs":"x"}}')
-      socket().receive({ data: new ArrayBuffer(2) })
+      socket().receiveBinary()
     })
     expect(result.current.history).toHaveLength(3)
   })
