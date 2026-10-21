@@ -71,6 +71,6 @@ def test_no_watcher_by_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
 
 def test_eof_requests_a_graceful_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
     signals: list[int] = []
-    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: signals.append(sig))
+    monkeypatch.setattr("memmon.__main__.os.kill", lambda pid, sig: signals.append(sig))
     cli.request_shutdown()
     assert signals == [signal.SIGINT]
