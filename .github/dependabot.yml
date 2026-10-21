@@ -11,6 +11,10 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    ignore:
+      # Node types must match the Node 24 runtime, so only take minor/patch updates.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-dev:
         dependency-type: development
