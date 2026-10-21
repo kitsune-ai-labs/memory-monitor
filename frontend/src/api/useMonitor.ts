@@ -109,7 +109,10 @@ export function useMonitor({ url, createSocket = browserSocket, onAlert }: UseMo
       }
     }
 
-    connect()
+    // Connect on the next tick: React StrictMode (dev) mounts, unmounts and remounts at once,
+    // and a socket opened by the discarded mount is torn down mid-handshake, which the Vite
+    // proxy reports as an EPIPE error. Deferring lets the cleanup cancel it before it exists.
+    timer = setTimeout(connect, 0)
     return () => {
       disposed = true
       clearTimeout(timer)
