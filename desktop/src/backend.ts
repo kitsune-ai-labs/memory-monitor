@@ -1,5 +1,11 @@
-import type { AppConfig } from './config'
 import { appOrigin } from './security'
+
+/** Where and how to run the installed backend. */
+export interface LaunchSpec {
+  distro: string
+  installDir: string
+  port: number
+}
 
 /** The subset of ChildProcess the supervisor uses; injectable for tests. */
 export interface ChildLike {
@@ -32,24 +38,27 @@ export interface SupervisorDeps {
 export class BackendError extends Error {}
 
 /**
- * The backend command: wsl.exe runs uv directly (--exec, so no Linux shell parses anything)
- * from a fixed argument list built from validated config.
+ * The backend command: wsl.exe runs the bundled Python directly (--exec, so no Linux shell parses
+ * anything) in isolated mode (-I: no user site-packages, PYTHON* variables ignored).
  */
-export function backendCommand(config: AppConfig): { file: string; args: string[] } {
+export function backendCommand(spec: LaunchSpec): { file: string; args: string[] } {
+  const dir = spec.installDir
   return {
     file: 'wsl.exe',
     args: [
       '--distribution',
-      config.distro,
+      spec.distro,
       '--cd',
-      config.backendDir,
+      dir,
       '--exec',
-      config.uvPath,
-      'run',
-      '--frozen',
+      `${dir}/python/bin/python3`,
+      '-I',
+      '-m',
       'memmon',
       '--port',
-      String(config.port),
+      String(spec.port),
+      '--static-dir',
+      `${dir}/ui`,
       '--exit-on-eof',
     ],
   }
@@ -61,7 +70,7 @@ export class BackendSupervisor {
   private readonly healthUrl: string
 
   constructor(
-    private readonly config: AppConfig,
+    private readonly config: LaunchSpec,
     private readonly deps: SupervisorDeps,
   ) {
     this.healthUrl = `${appOrigin(config.port)}/api/health`
