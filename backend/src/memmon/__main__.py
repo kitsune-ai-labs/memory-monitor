@@ -4,9 +4,14 @@ import argparse
 import asyncio
 import functools
 import logging
+import os
 import shutil
-from collections.abc import Sequence
+import signal
+import sys
+import threading
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import BinaryIO
 
 import uvicorn
 
@@ -42,6 +47,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--port", type=_port, default=DEFAULT_PORT)
     parser.add_argument("--dev", action="store_true", help="allow the Vite dev server's origin")
     parser.add_argument("--static-dir", type=Path, default=DEFAULT_STATIC_DIR)
+    parser.add_argument(
+        "--exit-on-eof",
+        action="store_true",
+        help="shut down when stdin closes (used by the desktop app to stop the server)",
+    )
     return parser.parse_args(argv)
 
 
@@ -49,6 +59,24 @@ def dev_origins(*, dev: bool) -> tuple[str, ...]:
     if not dev:
         return ()
     return (f"http://127.0.0.1:{VITE_PORT}", f"http://localhost:{VITE_PORT}")
+
+
+def watch_stdin(stream: BinaryIO, on_eof: Callable[[], None]) -> None:
+    """Block until ``stream`` reaches end-of-file, then call ``on_eof``."""
+    while stream.read(4096):
+        pass
+    on_eof()
+
+
+def request_shutdown() -> None:
+    """Ask uvicorn for the same graceful shutdown as Ctrl+C."""
+    os.kill(os.getpid(), signal.SIGINT)
+
+
+def start_eof_watch() -> None:
+    threading.Thread(
+        target=watch_stdin, args=(sys.stdin.buffer, request_shutdown), daemon=True
+    ).start()
 
 
 def _find_nvidia_smi() -> Path:
@@ -90,6 +118,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         dev_origins=dev_origins(dev=args.dev),
         run_sampler=run_sampler,
     )
+    if args.exit_on_eof:
+        start_eof_watch()
     uvicorn.run(
         app,
         host="127.0.0.1",
