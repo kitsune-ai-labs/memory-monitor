@@ -1,13 +1,14 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import App from './App'
+import { FakeNotifications } from './test/fakeNotifications'
 import { FakeSocket } from './test/fakeSocket'
 import { makeHistory, makeSnapshot, SETTINGS } from './test/fixtures'
 
 const createSocket = (url: string) => new FakeSocket(url)
 
-function connect(settings = SETTINGS) {
-  render(<App createSocket={createSocket} />)
+function connect(settings = SETTINGS, notifications = new FakeNotifications()) {
+  render(<App createSocket={createSocket} notifications={notifications} />)
   const socket = FakeSocket.latest()
   act(() => {
     socket.open()
@@ -22,7 +23,7 @@ beforeEach(() => {
 
 describe('App', () => {
   it('shows a loading state until the server says hello', () => {
-    render(<App createSocket={createSocket} />)
+    render(<App createSocket={createSocket} notifications={new FakeNotifications()} />)
     expect(screen.getByText('Connecting to the monitor service…')).toBeInTheDocument()
   })
 
@@ -57,6 +58,14 @@ describe('App', () => {
     expect(screen.getByRole('region', { name: 'System RAM' })).toHaveTextContent('37.5%')
     fireEvent.click(screen.getByRole('button', { name: 'Resume' }))
     expect(screen.getByRole('region', { name: 'System RAM' })).toHaveTextContent('91.0%')
+  })
+
+  it('turns server alerts into Windows notifications', () => {
+    const notifications = new FakeNotifications('granted')
+    const socket = connect(SETTINGS, notifications)
+    const alert = { metric: 'ram', pct: 91, thresholdPct: 85, tsMs: 6000, message: 'System RAM is at 91% (alert at 85%)' }
+    act(() => socket.receive({ type: 'alert', alert }))
+    expect(notifications.shown).toEqual([{ title: 'Memory Monitor', body: alert.message, tag: 'memmon-ram' }])
   })
 
   it('tells the user when the connection drops', () => {
