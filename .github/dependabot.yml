@@ -18,6 +18,13 @@ updates:
     groups:
       npm-dev:
         dependency-type: development
+  - package-ecosystem: npm
+    directory: /desktop
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
