@@ -10,7 +10,8 @@
     list; it takes no other input and changes nothing on the system.
 
     Output line (all sizes in bytes):
-        {"v":1,"mem":{...},"procs":[{"pid","name","bytes"}],"gpuProcs":[{"pid","name","bytes"}]}
+        {"v":1,"mem":{...},"procs":[{"pid","name","bytes"}],"gpuProcs":[{"pid","name","bytes"}],
+         "gpu":{"name","dedicatedUsedBytes","dedicatedTotalBytes"} or null}
     or, if a sample fails:
         {"v":1,"error":"<message>"}
 #>
@@ -36,6 +37,61 @@ try {
 }
 catch {
     $gpuCategory = $null
+}
+
+# The GPU adapter with the most dedicated memory, for machines without nvidia-smi (AMD, Intel).
+# Its name and size come from the display-adapter class key in the registry (readable without
+# admin rights); usage comes from the "GPU Adapter Memory" counter that Task Manager also uses.
+function Get-PrimaryAdapter {
+    $classKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'
+    $best = $null
+    foreach ($key in Get-ChildItem -Path $classKey -ErrorAction SilentlyContinue) {
+        if ($key.PSChildName -notmatch '^\d{4}$') { continue }
+        $props = Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue
+        if ($null -eq $props -or -not $props.PSObject.Properties['DriverDesc']) { continue }
+        $size = [long]0
+        $qw = $props.PSObject.Properties['HardwareInformation.qwMemorySize']
+        $dw = $props.PSObject.Properties['HardwareInformation.MemorySize']
+        if ($null -ne $qw) {
+            $size = [long]$qw.Value
+        }
+        elseif ($null -ne $dw) {
+            $size = if ($dw.Value -is [byte[]]) { [long][BitConverter]::ToUInt32($dw.Value, 0) } else { [long]$dw.Value }
+        }
+        if ($size -gt 0 -and ($null -eq $best -or $size -gt $best.Size)) {
+            $best = [pscustomobject]@{ Name = [string]$props.DriverDesc; Size = $size }
+        }
+    }
+    return $best
+}
+
+$adapter = $null
+$adapterCategory = $null
+try {
+    $adapter = Get-PrimaryAdapter
+    if ($null -ne $adapter) {
+        $adapterCategory = New-Object System.Diagnostics.PerformanceCounterCategory('GPU Adapter Memory')
+        $null = $adapterCategory.ReadCategory()
+    }
+}
+catch {
+    $adapter = $null
+    $adapterCategory = $null
+}
+
+function Get-AdapterSample {
+    if ($null -eq $adapter -or $null -eq $adapterCategory) {
+        return $null
+    }
+    $used = [long]0
+    foreach ($sample in $adapterCategory.ReadCategory()['Dedicated Usage'].Values) {
+        if ($sample.RawValue -gt $used) { $used = [long]$sample.RawValue }
+    }
+    return [ordered]@{
+        name                = $adapter.Name
+        dedicatedUsedBytes  = [Math]::Min($used, $adapter.Size)
+        dedicatedTotalBytes = $adapter.Size
+    }
 }
 
 function Get-Sample {
@@ -73,6 +129,7 @@ function Get-Sample {
         }
         procs    = $procs.ToArray()
         gpuProcs = $gpuProcs.ToArray()
+        gpu      = Get-AdapterSample
     }
     return ConvertTo-Json -InputObject $result -Compress -Depth 4
 }

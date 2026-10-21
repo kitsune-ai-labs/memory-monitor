@@ -1,5 +1,7 @@
 """Immutable data shapes passed between collectors, the sampler and the API."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
@@ -14,6 +16,8 @@ class GpuStats(_Frozen):
     util_pct: float | None = Field(default=None, ge=0, le=100)
     temp_c: float | None = Field(default=None, ge=-50, le=150)
     power_w: float | None = Field(default=None, ge=0, le=5000)
+    # nvidia-smi gives utilization/temperature/power too; the Windows fallback only memory.
+    source: Literal["nvidia-smi", "windows"] = "nvidia-smi"
 
 
 class HostMemory(_Frozen):
@@ -47,6 +51,7 @@ class HostSample(_Frozen):
     memory: HostMemory
     top_ram: tuple[ProcessMemory, ...]
     top_vram: tuple[ProcessMemory, ...]
+    adapter: GpuStats | None = None
 
 
 class HistoryPoint(_Frozen):

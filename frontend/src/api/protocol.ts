@@ -24,6 +24,8 @@ export interface GpuStats {
   utilPct: number | null
   tempC: number | null
   powerW: number | null
+  /** nvidia-smi gives the full set; the Windows fallback (AMD/Intel GPUs) only memory. */
+  source?: 'nvidia-smi' | 'windows'
 }
 
 export interface HostMemory {
@@ -116,8 +118,14 @@ const isSettings: Guard<Settings> = (v): v is Settings =>
     viewMode: isOneOf('full', 'compact'),
   })
 
+const isOptional =
+  <T>(guard: Guard<T>): Guard<T | undefined> =>
+  (value): value is T | undefined =>
+    value === undefined || guard(value)
+
 const isGpuStats: Guard<GpuStats> = (v): v is GpuStats =>
   hasShape<GpuStats>(v, {
+    source: isOptional(isOneOf('nvidia-smi', 'windows')),
     name: isString,
     usedBytes: isNumber,
     totalBytes: isNumber,

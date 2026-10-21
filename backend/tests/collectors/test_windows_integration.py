@@ -31,3 +31,6 @@ async def test_real_sampler_reports_host_memory_and_processes() -> None:
         assert sample.memory.total_bytes > 1024**3
         assert 0 < sample.memory.used_bytes < sample.memory.total_bytes
         assert sample.top_ram, "expected at least one process"
+        if sample.adapter is not None:
+            assert sample.adapter.source == "windows"
+            assert 0 < sample.adapter.used_bytes <= sample.adapter.total_bytes

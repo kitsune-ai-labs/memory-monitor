@@ -5,7 +5,7 @@ import pytest
 
 from memmon.collectors.windows import MAX_LINE_CHARS, parse_windows_sample
 from memmon.errors import CollectorError
-from memmon.models import HostMemory, ProcessMemory
+from memmon.models import GpuStats, HostMemory, ProcessMemory
 
 GIB = 1024**3
 VRAM_TOTAL = 32 * GIB
@@ -132,3 +132,55 @@ def test_rejects_too_many_processes() -> None:
     procs = [{"pid": i, "name": "p", "bytes": 1} for i in range(5001)]
     with pytest.raises(CollectorError):
         parse_windows_sample(sample(procs=procs), vram_total_bytes=VRAM_TOTAL)
+
+
+ADAPTER = {
+    "name": "AMD Radeon RX 7900 XTX",
+    "dedicatedUsedBytes": 6 * GIB,
+    "dedicatedTotalBytes": 24 * GIB,
+}
+
+
+def test_reports_the_windows_gpu_adapter_when_present() -> None:
+    result = parse_windows_sample(sample(gpu=ADAPTER), vram_total_bytes=VRAM_TOTAL)
+    assert result.adapter == GpuStats(
+        name="AMD Radeon RX 7900 XTX",
+        used_bytes=6 * GIB,
+        total_bytes=24 * GIB,
+        source="windows",
+    )
+
+
+def test_adapter_is_optional() -> None:
+    assert parse_windows_sample(sample(), vram_total_bytes=VRAM_TOTAL).adapter is None
+    assert parse_windows_sample(sample(gpu=None), vram_total_bytes=VRAM_TOTAL).adapter is None
+
+
+def test_without_nvidia_the_adapter_total_bounds_process_readings() -> None:
+    gpu = [
+        {"pid": 1, "name": "game", "bytes": 20 * GIB},
+        {"pid": 2, "name": "ghost", "bytes": 30 * GIB},
+    ]
+    result = parse_windows_sample(sample(gpu=ADAPTER, gpuProcs=gpu), vram_total_bytes=None)
+    assert [p.name for p in result.top_vram] == ["game"]
+
+
+def test_adapter_names_are_sanitized() -> None:
+    adapter = {**ADAPTER, "name": "GPU\x1b[2J\u202e"}
+    result = parse_windows_sample(sample(gpu=adapter), vram_total_bytes=VRAM_TOTAL)
+    assert result.adapter is not None
+    assert result.adapter.name == "GPU[2J"
+
+
+@pytest.mark.parametrize(
+    "adapter",
+    [
+        {**ADAPTER, "dedicatedUsedBytes": 30 * GIB},
+        {**ADAPTER, "dedicatedTotalBytes": 0},
+        {**ADAPTER, "extra": 1},
+        {**ADAPTER, "dedicatedUsedBytes": "6"},
+    ],
+)
+def test_rejects_implausible_adapters(adapter: dict[str, Any]) -> None:
+    with pytest.raises(CollectorError):
+        parse_windows_sample(sample(gpu=adapter), vram_total_bytes=VRAM_TOTAL)

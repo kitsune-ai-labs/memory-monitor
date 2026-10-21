@@ -48,7 +48,7 @@ export function metricView(metric: Metric, snapshot: Snapshot | null, settings: 
     name: 'GPU VRAM',
     shortName: 'VRAM',
     color: 'var(--vram)',
-    subtitle: gpu?.name ?? null,
+    subtitle: gpu ? (gpu.source === 'windows' ? `${gpu.name} · Windows counters` : gpu.name) : null,
     usedBytes: gpu?.usedBytes ?? null,
     totalBytes: gpu?.totalBytes ?? null,
     pct: snapshot?.vramPct ?? null,
