@@ -7,6 +7,7 @@ validated against a strict schema, and process names are sanitized before they r
 
 import asyncio
 import json
+import shutil
 import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
@@ -19,6 +20,7 @@ from pydantic.alias_generators import to_camel
 from memmon.errors import CollectorError
 from memmon.models import HostMemory, HostSample, ProcessMemory
 
+SAMPLER_SCRIPT = Path(__file__).with_name("windows_sampler.ps1")
 MAX_LINE_CHARS = 1_048_576
 MAX_PROCESSES = 4096
 MAX_NAME_CHARS = 64
@@ -105,6 +107,25 @@ def parse_windows_sample(line: str, *, vram_total_bytes: int, top_n: int = 10) -
         top_ram=_top_by_name(wire.procs, top_n=top_n),
         top_vram=_top_by_name(wire.gpu_procs, top_n=top_n, max_bytes=vram_total_bytes),
     )
+
+
+async def to_windows_path(path: Path) -> str:
+    """Translate a WSL path to the Windows path powershell.exe needs, using ``wslpath -w``."""
+    wslpath = shutil.which("wslpath")
+    if wslpath is None:
+        raise CollectorError("wslpath not found; is this running under WSL?")
+    proc = await asyncio.create_subprocess_exec(
+        wslpath,
+        "-w",
+        str(path),
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    out, _ = await proc.communicate()
+    if proc.returncode != 0 or not out.strip():
+        raise CollectorError(f"wslpath could not translate {path}")
+    return out.decode("utf-8").strip()
 
 
 def powershell_argv(powershell: Path, script_windows_path: str) -> tuple[str, ...]:

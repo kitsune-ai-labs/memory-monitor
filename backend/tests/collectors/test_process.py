@@ -150,10 +150,12 @@ async def test_close_kills_a_sampler_that_ignores_quit() -> None:
     assert proc.pid is None
 
 
-async def test_to_windows_path_reports_a_missing_wslpath(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_to_windows_path_reports_a_missing_wslpath(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("PATH", "")
     with pytest.raises(CollectorError, match="wslpath"):
-        await to_windows_path(Path("/tmp/x.ps1"))
+        await to_windows_path(tmp_path / "x.ps1")
 
 
 def test_sampler_script_ships_with_the_package() -> None:
