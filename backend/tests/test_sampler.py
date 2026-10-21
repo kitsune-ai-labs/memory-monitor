@@ -42,7 +42,11 @@ class FakeClock:
         return self.now
 
 
-def make_sampler(gpu: object = GPU, host: object = HOST_LINE) -> Sampler:
+ADAPTER = {"name": "Radeon", "dedicatedUsedBytes": 4 * GIB, "dedicatedTotalBytes": 16 * GIB}
+HOST_LINE_WITH_ADAPTER = json.dumps({**json.loads(HOST_LINE), "gpu": ADAPTER})
+
+
+def make_sampler(gpu: object = GPU, host: object = HOST_LINE, gpu_source: str = "auto") -> Sampler:
     async def read_gpu() -> GpuStats:
         if isinstance(gpu, Exception):
             raise gpu
@@ -55,7 +59,12 @@ def make_sampler(gpu: object = GPU, host: object = HOST_LINE) -> Sampler:
         assert isinstance(host, str)
         return host
 
-    return Sampler(read_gpu=read_gpu, read_host=read_host, clock_ms=FakeClock())
+    return Sampler(
+        read_gpu=read_gpu,
+        read_host=read_host,
+        clock_ms=FakeClock(),
+        gpu_source=gpu_source,  # type: ignore[arg-type]
+    )
 
 
 async def test_collect_combines_both_sources() -> None:
@@ -149,3 +158,41 @@ async def test_timestamps_never_go_backwards() -> None:
     first = await sampler.collect()
     second = await sampler.collect()
     assert second.ts_ms > first.ts_ms
+
+
+async def test_falls_back_to_the_windows_adapter_without_nvidia_smi() -> None:
+    snap = await make_sampler(
+        gpu=CollectorError("nvidia-smi not found"), host=HOST_LINE_WITH_ADAPTER
+    ).collect()
+    assert snap.gpu is not None
+    assert snap.gpu.source == "windows"
+    assert snap.gpu.name == "Radeon"
+    assert snap.vram_pct == pytest.approx(25.0)
+    assert snap.errors == ()
+
+
+async def test_nvidia_smi_is_preferred_when_it_works() -> None:
+    snap = await make_sampler(host=HOST_LINE_WITH_ADAPTER).collect()
+    assert snap.gpu == GPU
+
+
+async def test_windows_source_skips_nvidia_smi_entirely() -> None:
+    snap = await make_sampler(
+        gpu=RuntimeError("must not be called"), host=HOST_LINE_WITH_ADAPTER, gpu_source="windows"
+    ).collect()
+    assert snap.gpu is not None
+    assert snap.gpu.source == "windows"
+
+
+async def test_nvidia_source_never_falls_back() -> None:
+    snap = await make_sampler(
+        gpu=CollectorError("nvidia-smi timed out"), host=HOST_LINE_WITH_ADAPTER, gpu_source="nvidia"
+    ).collect()
+    assert snap.gpu is None
+    assert snap.errors == ("gpu: nvidia-smi timed out",)
+
+
+async def test_reports_both_failures_when_no_gpu_source_works() -> None:
+    snap = await make_sampler(gpu=CollectorError("nvidia-smi not found")).collect()
+    assert snap.gpu is None
+    assert snap.errors == ("gpu: nvidia-smi not found",)

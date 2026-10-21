@@ -115,3 +115,11 @@ def test_explains_a_port_that_is_already_in_use(
     assert f"port {port} is already in use" in err
     assert "desktop app" in err
     assert "MEMMON_PORT" in err
+
+
+def test_gpu_source_option(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MEMMON_PORT", raising=False)
+    assert cli.parse_args([]).gpu_source == "auto"
+    assert cli.parse_args(["--gpu-source", "windows"]).gpu_source == "windows"
+    with pytest.raises(SystemExit):
+        cli.parse_args(["--gpu-source", "amd"])
