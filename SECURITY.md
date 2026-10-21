@@ -15,6 +15,19 @@ Memory Monitor is a single-user desktop tool. Its security model:
 - **Supply chain.** Dependencies are locked (with hashes for Python), audited in CI, and updated by
   Dependabot. CI actions are pinned to commit SHAs.
 
+## Desktop app
+
+- Renderer: `contextIsolation`, `sandbox`, no Node integration anywhere, no `<webview>`, and
+  navigation, redirects and new windows are blocked except to the app's own `127.0.0.1` origin.
+- Only the notification permission is ever granted, and only to the app origin.
+- The preload exposes two functions; the main process validates every IPC payload and checks
+  that it came from the app's own window and origin.
+- The backend is started with `wsl.exe --exec` from a fixed argument list built from a strictly
+  validated config. The app refuses to start if another server already answers on its port.
+- Electron fuses: `RunAsNode`, `NODE_OPTIONS` and `--inspect` are disabled; the app only loads
+  from its asar archive, whose integrity is validated; cookies are encrypted.
+- Electron is pinned to an exact version and tracked by Dependabot.
+
 ## Reporting a vulnerability
 
 Please open a private security advisory on this repository rather than a public issue.

@@ -26,9 +26,24 @@ whole GPU, so VRAM needs no Windows code.
 |---|---|
 | `backend/` | Python package `memmon` (uv-managed): collectors, sampler, API |
 | `frontend/` | React + TypeScript UI (Vite), tested with Vitest + Testing Library |
+| `desktop/` | Electron shell for Windows: tray, window modes, backend supervision |
 | `.github/` | CI (lint, types, tests, audits, secret scan) and Dependabot |
 
-## Running
+## Desktop app (Windows)
+
+```bash
+cd desktop && npm ci
+npm run package       # builds the UI and out/MemoryMonitor-win32-x64 (no Wine needed)
+npm run install-app   # copies it to %LOCALAPPDATA%\Programs\MemoryMonitor
+```
+
+Start **Memory Monitor** from the Start Menu. It starts the backend in WSL (`wsl.exe --exec`, no
+shell), opens the dashboard, and lives in the tray: closing the window hides it, **Quit** in the
+tray menu stops the app and the backend. In the compact view a pin button keeps the window on top.
+The app runs the backend from this checkout, so re-run `npm run package && npm run install-app`
+after pulling changes.
+
+## Running in a browser
 
 ```bash
 cd frontend && npm ci && npm run build && cd ..
