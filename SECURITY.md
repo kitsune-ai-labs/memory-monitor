@@ -22,8 +22,16 @@ Memory Monitor is a single-user desktop tool. Its security model:
 - Only the notification permission is ever granted, and only to the app origin.
 - The preload exposes two functions; the main process validates every IPC payload and checks
   that it came from the app's own window and origin.
-- The backend is started with `wsl.exe --exec` from a fixed argument list built from a strictly
-  validated config. The app refuses to start if another server already answers on its port.
+- The backend ships as `backend.tar.gz` next to the app. Its SHA-256 is stored in `config.json`
+  inside the integrity-checked asar, and the archive is verified before it is unpacked into WSL;
+  a mismatch is refused. Dependencies inside it are installed from the lockfile with
+  `--require-hashes`.
+- Every WSL command (`pwd`, `tar`, `mv`, …) and the backend itself run via `wsl.exe --exec` with
+  fixed argument lists: no shell on Windows or Linux. The bundled Python runs in isolated mode
+  (`-I`). Distro names and paths reported by WSL are validated before use, and the app refuses to
+  start if another server already answers on its port.
+- Release builds can be Authenticode-signed and timestamped; the signing password is passed via
+  an environment variable only.
 - Electron fuses: `RunAsNode`, `NODE_OPTIONS` and `--inspect` are disabled; the app only loads
   from its asar archive, whose integrity is validated; cookies are encrypted.
 - Electron is pinned to an exact version and tracked by Dependabot.

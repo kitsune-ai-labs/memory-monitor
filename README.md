@@ -26,22 +26,48 @@ whole GPU, so VRAM needs no Windows code.
 |---|---|
 | `backend/` | Python package `memmon` (uv-managed): collectors, sampler, API |
 | `frontend/` | React + TypeScript UI (Vite), tested with Vitest + Testing Library |
-| `desktop/` | Electron shell for Windows: tray, window modes, backend supervision |
+| `desktop/` | Electron shell for Windows: WSL detection, bundled-backend install, tray, window modes |
 | `.github/` | CI (lint, types, tests, audits, secret scan) and Dependabot |
 
 ## Desktop app (Windows)
 
+### Installing (any Windows PC)
+
+Requirements: Windows 10/11 with **WSL 2 and a Linux distribution** (`wsl --install`). Nothing
+else: the download bundles its own Linux Python, the backend and the UI.
+
+1. Download `MemoryMonitor-<version>-win32-x64.zip` (check it against the `.sha256` file).
+2. Extract it anywhere, for example `%LOCALAPPDATA%\Programs\MemoryMonitor`, and run `MemoryMonitor.exe`.
+
+On first launch the app finds your default WSL 2 distro, verifies the bundled backend against
+the SHA-256 stored inside the app, and unpacks it to `~/.local/share/memory-monitor/` in that
+distro (a few seconds; later launches reuse it). It also adds a Start Menu entry, which Windows
+needs before it will show the app's notifications.
+
+- **GPU:** NVIDIA cards report VRAM, utilization, temperature and power via `nvidia-smi`. Other
+  GPUs (AMD, Intel) report VRAM and per-process VRAM from Windows counters.
+- **Overrides:** `%APPDATA%\Memory Monitor\settings.json`, e.g. `{"distro": "Debian", "port": 8770}`.
+- **Tray:** closing the window hides it; **Quit** in the tray menu stops the app and its backend.
+- **Not supported:** WSL 1, musl-based distros (Alpine), ARM64 Windows.
+
+### Building the download
+
 ```bash
-cd desktop && npm ci
-npm run package       # builds the UI and out/MemoryMonitor-win32-x64 (no Wine needed)
-npm run install-app   # copies it to %LOCALAPPDATA%\Programs\MemoryMonitor
+cd backend && uv sync          # uses uv's standalone CPython, which gets bundled
+cd ../frontend && npm ci
+cd ../desktop && npm ci
+npm run package                # → desktop/out/MemoryMonitor-<version>-win32-x64.zip (+ .sha256)
+npm run install-app            # optional: install that build for yourself
 ```
 
-Start **Memory Monitor** from the Start Menu. It starts the backend in WSL (`wsl.exe --exec`, no
-shell), opens the dashboard, and lives in the tray: closing the window hides it, **Quit** in the
-tray menu stops the app and the backend. In the compact view a pin button keeps the window on top.
-The app runs the backend from this checkout, so re-run `npm run package && npm run install-app`
-after pulling changes.
+The **Package** GitHub workflow builds the same zip (manually, or on a `v*` tag, where it is
+attached to the release).
+
+**Code signing.** `MEMMON_SIGN_PFX=<cert.pfx> MEMMON_SIGN_PASSWORD=<password> npm run package`
+signs `MemoryMonitor.exe` (SHA-256, RFC 3161 timestamp) through Windows PowerShell; the password
+is passed by environment variable, never on a command line. SmartScreen only trusts a
+certificate from a public CA (OV/EV) or Azure Trusted Signing; with a self-signed certificate
+the file is signed but Windows will still warn.
 
 ## Running in a browser
 

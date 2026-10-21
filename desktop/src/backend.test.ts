@@ -2,12 +2,11 @@ import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import { BackendError, BackendSupervisor, backendCommand, type ChildLike } from './backend'
-import type { AppConfig } from './config'
+import type { LaunchSpec } from './backend'
 
-const CONFIG: AppConfig = {
-  distro: 'Ubuntu-24.04',
-  backendDir: '/home/ck/Dev/memory-monitor/backend',
-  uvPath: '/home/ck/.local/bin/uv',
+const CONFIG: LaunchSpec = {
+  distro: 'Debian',
+  installDir: '/home/someone/.local/share/memory-monitor/backend-aaaaaaaaaaaaaaaa',
   port: 8765,
 }
 
@@ -45,21 +44,24 @@ function healthAfter(failures: number) {
 const noSleep = async () => undefined
 
 describe('backendCommand', () => {
-  it('starts memmon in the configured distro with a fixed argument list', () => {
+  it('starts the bundled Python in isolated mode with a fixed argument list', () => {
+    const dir = CONFIG.installDir
     expect(backendCommand(CONFIG)).toEqual({
       file: 'wsl.exe',
       args: [
         '--distribution',
-        'Ubuntu-24.04',
+        'Debian',
         '--cd',
-        '/home/ck/Dev/memory-monitor/backend',
+        dir,
         '--exec',
-        '/home/ck/.local/bin/uv',
-        'run',
-        '--frozen',
+        `${dir}/python/bin/python3`,
+        '-I',
+        '-m',
         'memmon',
         '--port',
         '8765',
+        '--static-dir',
+        `${dir}/ui`,
         '--exit-on-eof',
       ],
     })

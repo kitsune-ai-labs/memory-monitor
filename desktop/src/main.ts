@@ -1,16 +1,20 @@
 /**
- * Electron main process: starts the WSL backend, shows the dashboard from it, and keeps a tray
- * icon. All decisions live in tested modules; this file only wires them to Electron.
+ * Electron main process: finds a WSL 2 distro, installs the bundled backend into it on first
+ * run, starts it, shows the dashboard from it, and keeps a tray icon. All decisions live in
+ * tested modules; this file only wires them to Electron.
  */
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { createReadStream, existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session, shell, Tray, type IpcMainInvokeEvent } from 'electron'
 import { BackendSupervisor } from './backend'
-import { parseConfig, type AppConfig } from './config'
+import { parseConfig, parseUserSettings, type AppConfig, type UserSettings } from './config'
+import { installBackend, type WslRunner } from './installer'
 import { CHANNELS, parseAlwaysOnTop, parseViewMode } from './ipc'
 import { appOrigin, isAppUrl, isPermissionAllowed, secureWebPreferences } from './security'
 import { boundsFor } from './windowModes'
+import { chooseDistro, decodeWslOutput, parseDistroList } from './wsl'
 
 const APP_ID = 'com.kitsune-ai-labs.memory-monitor'
 const ROOT = path.join(__dirname, '..')
@@ -23,6 +27,62 @@ let quitting = false
 function loadConfig(): AppConfig {
   return parseConfig(JSON.parse(readFileSync(path.join(ROOT, 'config.json'), 'utf8')))
 }
+
+/** Optional overrides in %APPDATA%\Memory Monitor\settings.json, e.g. {"distro": "Debian"}. */
+function loadUserSettings(): UserSettings {
+  const file = path.join(app.getPath('userData'), 'settings.json')
+  return existsSync(file) ? parseUserSettings(JSON.parse(readFileSync(file, 'utf8'))) : {}
+}
+
+/** Runs wsl.exe with a fixed argument list (no shell) and collects its output. */
+function runWsl(args: string[], timeoutMs = 120_000): Promise<{ code: number; stdout: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('wsl.exe', args, {
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: { ...process.env, WSL_UTF8: '1' },
+    })
+    const chunks: Buffer[] = []
+    let size = 0
+    child.stdout.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size <= 1024 * 1024) chunks.push(chunk)
+    })
+    const timer = setTimeout(() => child.kill(), timeoutMs)
+    child.on('error', reject)
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      resolve({ code: code ?? -1, stdout: Buffer.concat(chunks) })
+    })
+  })
+}
+
+const wslRunner: WslRunner = {
+  run: async (args) => {
+    const { code, stdout } = await runWsl(args)
+    return { code, stdout: decodeWslOutput(stdout) }
+  },
+}
+
+function sha256File(file: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256')
+    createReadStream(file)
+      .on('data', (chunk) => hash.update(chunk))
+      .on('error', reject)
+      .on('end', () => resolve(hash.digest('hex')))
+  })
+}
+
+const LOADING_PAGE = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>Memory Monitor</title>
+<style>body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
+background:#0f0f0e;color:#c3c2b7;font:15px system-ui,'Segoe UI',sans-serif;text-align:center}
+small{display:block;margin-top:8px;color:#9a998f}</style></head>
+<body><div>Starting Memory Monitor…<small>The first launch sets up the monitor service in WSL. This can take a minute.</small></div></body></html>`)}`
 
 /** Windows only shows toasts for apps with a Start Menu shortcut carrying their AppUserModelID. */
 function ensureStartMenuShortcut(): void {
@@ -79,7 +139,8 @@ function showWindow(): void {
   window.focus()
 }
 
-function createWindow(config: AppConfig): void {
+/** Opens on a local "Starting…" page; the dashboard is loaded once the backend is healthy. */
+function createWindow(): void {
   const bounds = boundsFor('full')
   window = new BrowserWindow({
     ...bounds,
@@ -98,7 +159,7 @@ function createWindow(config: AppConfig): void {
     event.preventDefault()
     window?.hide()
   })
-  void window.loadURL(`${appOrigin(config.port)}/`)
+  void window.loadURL(LOADING_PAGE)
 }
 
 function createTray(): void {
@@ -114,33 +175,52 @@ function createTray(): void {
   tray.on('click', () => (window?.isVisible() ? window.hide() : showWindow()))
 }
 
+function fail(message: string): void {
+  dialog.showErrorBox('Memory Monitor', message)
+  app.exit(1)
+}
+
 async function start(): Promise<void> {
   let config: AppConfig
+  let settings: UserSettings
   try {
     config = loadConfig()
+    settings = loadUserSettings()
   } catch (error) {
-    dialog.showErrorBox('Memory Monitor', `The app configuration is invalid: ${String(error)}`)
-    app.exit(1)
+    fail(`The app configuration is invalid: ${String(error)}`)
     return
   }
+  const port = settings.port ?? config.port
   ensureStartMenuShortcut()
-  hardenSessions(config.port)
-  registerIpc(config.port)
+  hardenSessions(port)
+  registerIpc(port)
+  createWindow()
 
-  supervisor = new BackendSupervisor(config, {
-    spawn: (file, args, options) => spawn(file, args, options),
-    fetch: (url, init) => fetch(url, init),
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  })
   try {
+    const listing = await runWsl(['--list', '--verbose'], 30_000)
+    if (listing.code !== 0) throw new Error('WSL is not installed or not working. Install it with: wsl --install')
+    const distro = chooseDistro(parseDistroList(decodeWslOutput(listing.stdout)), settings.distro)
+    const installed = await installBackend(
+      distro,
+      { archivePath: path.join(process.resourcesPath, config.backend.archive), sha256: config.backend.sha256 },
+      wslRunner,
+      sha256File,
+    )
+    supervisor = new BackendSupervisor(
+      { distro, installDir: installed.installDir, port },
+      {
+        spawn: (file, args, options) => spawn(file, args, options),
+        fetch: (url, init) => fetch(url, init),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      },
+    )
     await supervisor.start()
   } catch (error) {
     supervisor = null
-    dialog.showErrorBox('Memory Monitor', `Could not start the monitor service: ${error instanceof Error ? error.message : String(error)}`)
-    app.exit(1)
+    fail(`Could not start the monitor service: ${error instanceof Error ? error.message : String(error)}`)
     return
   }
-  createWindow(config)
+  void window?.loadURL(`${appOrigin(port)}/`)
   createTray()
 }
 
