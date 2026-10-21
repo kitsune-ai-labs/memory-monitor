@@ -17,7 +17,7 @@ describe('MetricPanel', () => {
   it('shows system RAM usage', () => {
     renderPanel('ram')
     const panel = screen.getByRole('region', { name: 'System RAM' })
-    expect(panel).toHaveTextContent('Windows host · 64 GB installed')
+    expect(panel).toHaveTextContent('Windows host · 64.0 GB usable')
     expect(panel).toHaveTextContent('24.0')
     expect(panel).toHaveTextContent('/ 64.0 GB')
     expect(panel).toHaveTextContent('37.5%')
